@@ -751,8 +751,6 @@ procWaterTerms = {
     "water", "swamp", "ocean", "river", "lake", "sea", "damagezone", "hazard",
 }
 
--- Water stash: neutralizes CanTouch/CanCollide on all water parts and their
--- descendants. Uses client-side properties because LT2 locks Parent.
 function procStashWater()
     if #procState.waterStash > 0 then return 0 end
     local snapshot = {}
@@ -1005,76 +1003,6 @@ function procFireCut(plank, axe, height)
         cuttingClass = procConfig.CUTTING_CLASS,
     }
     return pcall(function() RemoteProxy:FireServer(cutEvent, payload) end)
-end
-
-function procCutTo1x1(plank, announceFn)
-    if not plank or not plank.Parent then return false end
-
-    local stashed = procStashWater()
-    if stashed > 0 and announceFn then
-        announceFn("Water neutralized (" .. stashed .. ").")
-    end
-
-    local ok = (function()
-        local axe = procFindAxe()
-        if not axe then
-            if announceFn then announceFn("No axe.") end
-            return false
-        end
-        procEnsureEquipped(axe)
-
-        local mode = procTeleportNear(plank)
-        if announceFn then announceFn("TP: " .. mode) end
-
-        axe = procFindAxe()
-        if not axe then
-            if announceFn then announceFn("Axe lost.") end
-            return false
-        end
-
-        local cuts = 0
-        while cuts < procConfig.MAX_CUTS do
-            if not plank.Parent then
-                if announceFn then announceFn("Plank destroyed.") end
-                return true
-            end
-            if procGetHP() < procConfig.MIN_HP then
-                if announceFn then announceFn("HP low.") end
-                return false
-            end
-
-            local size = procGetSize(plank)
-            if not size then break end
-            local d = {size.X, size.Y, size.Z}
-            table.sort(d)
-            if d[1] <= 1.05 and d[2] <= 1.05 then
-                if announceFn then announceFn("1x1 done (" .. cuts .. " cuts).") end
-                return true
-            end
-
-            if not axe or not axe.Parent then
-                axe = procFindAxe()
-                if not axe then break end
-            end
-            procEnsureEquipped(axe)
-            procFireCut(plank, axe, procConfig.CUT_HEIGHT)
-            cuts = cuts + 1
-
-            if announceFn and cuts % 5 == 0 then
-                announceFn("Cut " .. cuts .. ".")
-            end
-            task.wait(procConfig.CUT_DELAY)
-        end
-
-        if announceFn then announceFn("Stopped after " .. cuts .. " cuts.") end
-        return false
-    end)()
-
-    if #procState.waterStash > 0 then
-        local n = procRestoreWater()
-        if announceFn then announceFn("Water restored (" .. n .. ").") end
-    end
-    return ok
 end
 
 function procCutToLength(plank, targetLength, announceFn)
@@ -3045,8 +2973,6 @@ makeParagraph("Tip",
     nextOrder(),
     TEXT_DIM)
 
--- ═══ FILL TAB ═══
-
 -- === INJECTED: v19 — height = final target size ===
 
 procConfig.FACE_VECTOR = Vector3.new(0, 0, 1)
@@ -3178,7 +3104,7 @@ function procOrientPlank(plank, feedDir)
     return true
 end
 
--- Cuts with height = desired final size. Repeats only if size didn't reach target.
+-- Cuts with height = desired final size.
 function procCutTo1x1(plank, announceFn)
     if not plank or not plank.Parent then return false end
     local size = procGetSize(plank)
@@ -3218,7 +3144,6 @@ function procCutTo1x1(plank, announceFn)
         local cuts, lastSig, stall = 0, nil, 0
         local finalSize = nil
         while cuts < procConfig.MAX_CUTS do
-            -- Check if ClickCut toggle was turned off mid-loop
             if clickCut1x1Mode == false then
                 if announceFn then announceFn("Cancelled by toggle.") end
                 return false
@@ -3239,7 +3164,6 @@ function procCutTo1x1(plank, announceFn)
                 return true
             end
 
-            -- Stall detection: 3 identical readings in a row = no progress
             local sig = string.format("%.3f_%.3f_%.3f", d[1], d[2], d[3])
             if lastSig == sig then
                 stall = stall + 1
@@ -3255,17 +3179,12 @@ function procCutTo1x1(plank, announceFn)
                 lastSig = sig
             end
 
-            -- Send height = target final size directly
             local targetHeight = procConfig.CUT_HEIGHT
 
             procEnsureEquipped(axe)
             procFireCut(plank, axe, targetHeight)
             cuts = cuts + 1
 
-            if announceFn then
-                announceFn(string.format("Fire %d - height=%.3f - before %.3f, %.3f, %.3f",
-                    cuts, targetHeight, d[1], d[2], d[3]))
-            end
             task.wait(procConfig.CUT_DELAY)
         end
 
@@ -3289,7 +3208,7 @@ clickCut1x1Mode = false
 clickCut1x1Conn = nil
 clickCut1x1Toggle = nil
 
-local GuiService = game:GetService("GuiService")
+local GuiService2 = game:GetService("GuiService")
 
 function castOnceForPlank(cam, vx, vy)
     local ray = cam:ViewportPointToRay(vx, vy)
@@ -3316,7 +3235,7 @@ function clickCutRaycast(screenPos)
     if not cam then return nil, "no camera" end
     local insetY = 0
     pcall(function()
-        local inset = GuiService:GetGuiInset()
+        local inset = GuiService2:GetGuiInset()
         insetY = inset.Y
     end)
     local found = castOnceForPlank(cam, screenPos.X, screenPos.Y + insetY)
@@ -3389,13 +3308,6 @@ end, nextOrder(), "%.2f")
 makeParagraph("height meaning",
     "height = the target size to leave the plank at. Use ~1.05 for 1x1x1. If the cut overshoots (goes below 1), raise this value.",
     nextOrder(), TEXT_DIM)
-
-makeToggle("Sniffer ON/OFF",
-    "Log every RemoteProxy:FireServer call.",
-    false,
-    function(state)
-        snifferEnabled = state
-    end, nextOrder())
 
 task.spawn(function()
     task.wait(1)
