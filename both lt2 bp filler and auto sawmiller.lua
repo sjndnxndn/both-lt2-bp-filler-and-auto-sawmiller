@@ -8,6 +8,8 @@ if _G._BPFLassoGui and _G._BPFLassoGui.Parent then
 end
 if _G._BPFLassoGui then _G._BPFLassoGui = nil end
 
+print("[BPFiller] file loaded, starting init...")
+
 local VERSION = "1.0"
 
 local Players = game:GetService("Players")
@@ -727,7 +729,6 @@ local procConfig = {
     MAX_QUEUE = 2,
 }
 
--- Forward-safe helpers (setStatus and colors are declared later in the file)
 local PROC_WARN_RED = Color3.fromRGB(230, 120, 120)
 local PROC_GOOD_GREEN = Color3.fromRGB(110, 210, 130)
 local function procSetStatus(msg)
@@ -750,6 +751,8 @@ local procWaterTerms = {
     "water", "swamp", "ocean", "river", "lake", "sea", "damagezone", "hazard",
 }
 
+-- Water stash: neutralizes CanTouch/CanCollide on all water parts and their
+-- descendants. Uses client-side properties because LT2 locks Parent.
 local function procStashWater()
     if #procState.waterStash > 0 then return 0 end
     local snapshot = {}
@@ -759,16 +762,47 @@ local function procStashWater()
     local n = 0
     for d in pairs(snapshot) do
         if d and d.Parent then
-            local ok = d:IsA("BasePart") or d:IsA("Folder")
-                    or d:IsA("Model") or d:IsA("TrussPart")
-            if ok then
+            local checkable = d:IsA("BasePart") or d:IsA("Folder")
+                           or d:IsA("Model") or d:IsA("TrussPart")
+            if checkable then
                 local nm = d.Name:lower()
+                local matched = false
                 for _, term in ipairs(procWaterTerms) do
-                    if nm:find(term) then
-                        table.insert(procState.waterStash, {part = d, parent = d.Parent})
-                        d.Parent = nil
+                    if nm:find(term) then matched = true; break end
+                end
+                if matched then
+                    local partsToNeutralize = {}
+                    if d:IsA("BasePart") then
+                        table.insert(partsToNeutralize, d)
+                    end
+                    for _, child in ipairs(d:GetDescendants()) do
+                        if child:IsA("BasePart") then
+                            table.insert(partsToNeutralize, child)
+                        end
+                    end
+
+                    local entry = {part = d, touchStates = {}}
+                    for _, p in ipairs(partsToNeutralize) do
+                        local ct, cc
+                        local ok = pcall(function()
+                            ct = p.CanTouch
+                            cc = p.CanCollide
+                        end)
+                        if ok then
+                            table.insert(entry.touchStates, {
+                                part = p,
+                                canTouch = ct,
+                                canCollide = cc,
+                            })
+                            pcall(function()
+                                p.CanTouch = false
+                                p.CanCollide = false
+                            end)
+                        end
+                    end
+                    if #entry.touchStates > 0 then
+                        table.insert(procState.waterStash, entry)
                         n = n + 1
-                        break
                     end
                 end
             end
@@ -780,9 +814,14 @@ end
 local function procRestoreWater()
     local n = 0
     for _, entry in ipairs(procState.waterStash) do
-        if entry.part and entry.parent then
-            pcall(function() entry.part.Parent = entry.parent end)
-            n = n + 1
+        for _, state in ipairs(entry.touchStates or {}) do
+            if state.part then
+                pcall(function()
+                    state.part.CanTouch = state.canTouch
+                    state.part.CanCollide = state.canCollide
+                end)
+                n = n + 1
+            end
         end
     end
     procState.waterStash = {}
@@ -973,7 +1012,7 @@ local function procCutTo1x1(plank, announceFn)
 
     local stashed = procStashWater()
     if stashed > 0 and announceFn then
-        announceFn("Water stashed (" .. stashed .. ").")
+        announceFn("Water neutralized (" .. stashed .. ").")
     end
 
     local ok = (function()
@@ -1043,7 +1082,7 @@ local function procCutToLength(plank, targetLength, announceFn)
 
     local stashed = procStashWater()
     if stashed > 0 and announceFn then
-        announceFn("Water stashed (" .. stashed .. ").")
+        announceFn("Water neutralized (" .. stashed .. ").")
     end
 
     local ok = (function()
@@ -1385,7 +1424,7 @@ lassoHint.Visible = false
 lassoHint.Parent = lassoGui
 Instance.new("UICorner", lassoHint).CornerRadius = UDim.new(0, 6)
 
--- ─────────── UI: KRON V2 LAYOUT ───────────
+-- ─────────── MAIN UI ───────────
 local gui = Instance.new("ScreenGui")
 gui.Name = "BPFillerStandalone"
 gui.ResetOnSpawn = false
@@ -2899,596 +2938,3 @@ makeSlider("Fill Delay (s)", 0.05, 0.5, fillDelay, function(v) fillDelay = v end
 makeSection("WOOD PROCESSOR", nextOrder(), "wood")
 
 makeParagraph("About",
-    "Auto-cuts your planks to 1x1 and feeds them into your sawmill. Stand near the sawmill. Requires an axe in your inventory.",
-    nextOrder(),
-    TEXT_DIM)
-
-procStatusPara = makeParagraph("Status", "Stopped", nextOrder(), TEXT_GRAY)
-
-procCountPara = makeParagraph("Session Counter", "Moved this session: 0", nextOrder())
-
-procStartBtn = makeButton("Start Processor",
-    "Toggle the auto-processor on/off. Loop interval controls speed.",
-    function()
-        if procState.running then
-            procStopLoop()
-            setStatus("Wood processor stopped")
-        else
-            procStartLoop()
-            setStatus("Wood processor started")
-        end
-        updateProcUI()
-    end, nextOrder())
-
-makeButton("Process One Plank",
-    "Run a single processor cycle immediately",
-    function()
-        procProcessOneManual()
-        setStatus("Processing one plank...")
-    end, nextOrder())
-
-procInfoPara = makeParagraph("Info",
-    "Last: Idle  |  Water stashed: 0", nextOrder())
-
-makeSection("PROCESSOR TUNING", nextOrder())
-
-makeSlider("Cut Delay (s)", 0.3, 3.0, procConfig.CUT_DELAY, function(v)
-    procConfig.CUT_DELAY = v
-end, nextOrder(), "%.2f")
-
-makeSlider("Loop Interval (s)", 1.0, 10.0, procConfig.LOOP_INTERVAL, function(v)
-    procConfig.LOOP_INTERVAL = v
-end, nextOrder(), "%.2f")
-
-makeSlider("Max Queue", 1, 10, procConfig.MAX_QUEUE, function(v)
-    procConfig.MAX_QUEUE = math.floor(v + 0.5)
-end, nextOrder(), "%.0f")
-
-makeSlider("Max Cuts", 10, 200, procConfig.MAX_CUTS, function(v)
-    procConfig.MAX_CUTS = math.floor(v + 0.5)
-end, nextOrder(), "%.0f")
-
-makeSection("SAWMILL SIZE LIMITS", nextOrder())
-
-makeSlider("Max Width", 1, 10, procConfig.SAWMILL_MAX_WIDTH, function(v)
-    procConfig.SAWMILL_MAX_WIDTH = v
-end, nextOrder(), "%.2f")
-
-makeSlider("Max Height", 1, 10, procConfig.SAWMILL_MAX_HEIGHT, function(v)
-    procConfig.SAWMILL_MAX_HEIGHT = v
-end, nextOrder(), "%.2f")
-
-makeSlider("Max Length", 1, 30, procConfig.SAWMILL_MAX_LENGTH, function(v)
-    procConfig.SAWMILL_MAX_LENGTH = v
-end, nextOrder(), "%.2f")
-
-makeSection("PROCESSOR SAFETY", nextOrder())
-
-makeParagraph("Safety",
-    "Any part whose name contains water/swamp/ocean/river/lake/sea/damagezone/hazard is temporarily detached before each cut and restored after.",
-    nextOrder(),
-    TEXT_DIM)
-
-makeButton("Clear Processed List",
-    "Forget which planks have been processed this session (so they can be re-tried)",
-    function()
-        procState.processed = setmetatable({}, {__mode = "k"})
-        setStatus("Processed list cleared")
-    end, nextOrder())
-
--- ═══ STANDALONE CUTTERS ═══
-makeSection("STANDALONE CUTTERS", nextOrder())
-
-makeParagraph("About",
-    "Cuts planks in place without moving them. Same axe + remote as the processor. Settings here are not saved in config.",
-    nextOrder(),
-    TEXT_DIM)
-
-cutterStatusRef = makeParagraph("Cutter Status",
-    "Idle", nextOrder(), TEXT_GRAY)
-
-makeButton("Cut All Planks to 1x1",
-    "Cuts every owned plank's cross-section down to 1x1. Length is untouched.",
-    function() runCutAll1x1() end,
-    nextOrder())
-
-makeSlider("Target Length (studs)", 1, 30, cutterTargetLength, function(v)
-    cutterTargetLength = math.floor(v + 0.5)
-end, nextOrder(), "%.0f")
-
-makeButton("Cut All Planks to Length",
-    "Cuts every owned plank so its longest side matches the target length.",
-    function() runCutAllLength(cutterTargetLength) end,
-    nextOrder())
-
-makeParagraph("Tip",
-    "Want 1x1x5 planks? Run 'Cut All to 1x1' first, then set target length to 5 and run 'Cut All to Length'.",
-    nextOrder(),
-    TEXT_DIM)
-
--- ═══ FILL TAB ═══
-makeSection("FILL METHOD", nextOrder(), "fill")
-
-makeDropdown("Mode", fillMethodLabels,
-    fillMethod == "Working" and "Working (teleport)" or "Testing/WIP (hold)",
-    function(opt)
-        if opt == "Working (teleport)" then
-            fillMethod = "Working"
-            setStatus("Mode: Working (teleport)")
-        else
-            fillMethod = "Testing/WIP"
-            setStatus("Mode: Testing/WIP (hold)")
-        end
-    end, nextOrder())
-
-makeSection("MODES", nextOrder())
-
-makeButton("Auto Fill All",
-    "One-shot fill of every target blueprint using the current mode",
-    function() fillAllBlueprints() end, nextOrder())
-
-makeButton("Fill Nearest BP",
-    "Fill whichever of your blueprints is closest to you right now",
-    function() fillNearestBlueprint() end, nextOrder())
-
-makeToggle("Auto Fill Nearest",
-    "Automatically fill the nearest blueprint every few seconds",
-    false, function(state)
-        nearestMode = state
-        setStatus(state and "Auto-fill-nearest ON" or "Auto-fill-nearest OFF")
-    end, nextOrder())
-
-makeToggle("Loop Mode",
-    "Continuously fill blueprints as new planks appear",
-    false, function(state)
-        loopMode = state
-        setStatus(state and "Loop ON" or "Loop OFF")
-    end, nextOrder())
-
-clickToggleHandle = makeToggle("Click to Fill",
-    "Click a blueprint to fill it with one matching plank",
-    false, function(state)
-        if state then startClickMode() else stopClickMode() end
-        setStatus(state and "Click ON" or "Click OFF")
-    end, nextOrder())
-
-holdCountPara = makeParagraph("Held Planks", "Currently holding: 0 planks", nextOrder())
-
-makeButton("Release All",
-    "Stop holding every plank (only matters in Testing/WIP mode)",
-    function()
-        local count = holdCount()
-        stopAllHolds()
-        setHoldCount()
-        setStatus("Released " .. count .. " plank(s)")
-    end, nextOrder())
-
-makeSection("HOLD TUNING (WIP ONLY)", nextOrder())
-
-local fireSigDefaultText
-if fireSignature == 1 then fireSigDefaultText = "1) Model only"
-elseif fireSignature == 2 then fireSigDefaultText = "2) Model + CFrame"
-elseif fireSignature == 3 then fireSigDefaultText = "3) Model + CFrame + true"
-elseif fireSignature == 4 then fireSigDefaultText = "4) Model + Vector3"
-else fireSigDefaultText = "5) Model + Mouse.Hit" end
-
-makeDropdown("Fire Signature", getFireSigOptions(), fireSigDefaultText, function(opt)
-    local n = tonumber(string.match(opt, "^(%d+)"))
-    if n then fireSignature = n; setStatus("Fire signature: " .. opt) end
-end, nextOrder())
-
-makeSlider("Fire Interval (s)", 0.1, 1.0, HOLD_FIRE_INTERVAL, function(v)
-    HOLD_FIRE_INTERVAL = v
-    setStatus(string.format("Fire rate: %.3fs", v))
-end, nextOrder(), "%.2f")
-
-makeToggle("Fire Every Frame",
-    "Max hold strength (fires ClientIsDragging every render frame)",
-    fireEveryFrame, function(state)
-        fireEveryFrame = state
-        setStatus(state and "Frame-spam ON" or "Frame-spam OFF")
-    end, nextOrder())
-
-makeToggle("Fire Once Only",
-    "Only fire ClientIsDragging on grab. No repeat fires afterward.",
-    fireOnceOnly, function(state)
-        fireOnceOnly = state
-        setStatus(state and "Fire-once mode ON" or "Fire-once mode OFF")
-    end, nextOrder())
-
--- ═══ LASSO TAB ═══
-makeSection("FILL LASSO", nextOrder(), "lasso")
-
-makeParagraph("How it works",
-    "Click 'Draw Lasso' then drag a rectangle on screen. Blueprints inside the rectangle get selected.",
-    nextOrder(),
-    TEXT_DIM)
-
-lassoDrawBtn = makeButton("Draw Lasso",
-    "Enter lasso mode - drag on screen to select blueprints",
-    function()
-        if lassoMode then
-            cancelLasso()
-            setStatus("Lasso cancelled")
-        else
-            startLassoMode()
-        end
-    end, nextOrder())
-
-lassoCountPara = makeParagraph("Selected Blueprints",
-    lassoSelectedCount() == 0 and "None selected"
-    or (lassoSelectedCount() .. " blueprint(s) selected"),
-    nextOrder(),
-    lassoSelectedCount() == 0 and TEXT_GRAY or GOOD_GREEN)
-
-lassoOnlyToggle = makeToggle("Fill Only Lasso",
-    "When ON, only blueprints inside the lasso get filled",
-    lassoFillOnly, function(state)
-        lassoFillOnly = state
-        setStatus(state and "Fill Only Lasso ON" or "Fill Only Lasso OFF")
-    end, nextOrder())
-
-makeButton("Clear Lasso",
-    "Forget the current lasso selection and turn off Fill Only Lasso",
-    function()
-        lassoSelectedBlueprints = {}
-        lassoFillOnly = false
-        if lassoOnlyToggle then lassoOnlyToggle:Set(false) end
-        updateLassoCount()
-        setStatus("Lasso cleared")
-    end, nextOrder())
-
-makeParagraph("Plot expansion tip",
-    "To fill only one plot expansion, draw the lasso around that expansion's blueprints. Only those get filled.",
-    nextOrder(),
-    TEXT_DIM)
-
--- ═══ NAV TAB ═══
-makeSection("NAVIGATION", nextOrder(), "nav")
-
-makeButton("Fly",
-    "Toggle flight. WASD + Space/Shift on PC. On-screen buttons on mobile.",
-    function()
-        if flying then stopFly(); setStatus("Fly OFF")
-        else startFly(); setStatus("Fly ON") end
-    end, nextOrder())
-
-makeSlider("Fly Speed", 20, 200, flySpeed, function(v)
-    flySpeed = v
-    if flyBV and flyBV.Velocity.Magnitude > 0 then
-        flyBV.Velocity = flyBV.Velocity.Unit * flySpeed
-    end
-end, nextOrder(), "%.0f")
-
-makeButton("TP to Closest BP",
-    "Teleport to the nearest blueprint owned by the selected player",
-    function() tpToClosestBP() end, nextOrder())
-
-baseDropdown = makeDropdown("Base (Owner)", getBaseOwnerOptions(),
-    selectedBaseOwner or "(pick one)", function(opt)
-        selectedBaseOwner = opt
-        setStatus("Base target: " .. opt)
-    end, nextOrder())
-
-makeButton("TP to Base",
-    "Teleport to the selected player's base",
-    function() tpToBase() end, nextOrder())
-
-makeButton("Refresh Bases",
-    "Rescan PlayerModels for owner entries",
-    function()
-        if baseDropdown then pcall(function() baseDropdown:SetValues(getBaseOwnerOptions()) end) end
-        setStatus("Base list refreshed")
-    end, nextOrder())
-
--- ═══ CONFIG TAB ═══
-makeSection("CONFIG", nextOrder(), "config")
-
-makeButton("Save Settings",
-    "Write current settings to disk (persists across re-executions)",
-    function()
-        local ok, msg = trySaveSettings(collectCurrentSettings())
-        if ok then setStatus("Settings saved")
-        else setStatus("Save failed: " .. tostring(msg)) end
-    end, nextOrder())
-
-makeButton("Reset to Defaults",
-    "Wipe everything back to defaults",
-    function() resetSettings() end, nextOrder())
-
--- ═══ DEBUG TAB (owner only) ═══
-if IS_OWNER then
-    makeSection("DEBUG / SNIFFER (owner only)", nextOrder(), "debug")
-
-    _G._BPFDragSniffing = false
-    _G._BPFSnifferInstalled = false
-
-    local function logArgs(tag, args)
-        print(string.format("[SNIFF] %s  argCount=%d", tag, #args))
-        for i = 1, #args do
-            local v = args[i]
-            print(string.format("   [%d] type=%s  value=%s", i, typeof(v), tostring(v)))
-        end
-    end
-
-    local function installDragSniffer()
-        if not ClientIsDragging then return false, "remote not found" end
-        if _G._BPFSnifferInstalled then return true, "already installed" end
-        if type(hookmetamethod) == "function" and type(getnamecallmethod) == "function" then
-            local ok = pcall(function()
-                local oldNamecall
-                oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-                    if not _G._BPFDragSniffing then return oldNamecall(self, ...) end
-                    local method = getnamecallmethod()
-                    if self == ClientIsDragging then
-                        logArgs("ClientIsDragging:" .. tostring(method), { ... })
-                    end
-                    return oldNamecall(self, ...)
-                end)
-            end)
-            if ok then _G._BPFSnifferInstalled = true; return true, "installed" end
-        end
-        return false, "no hook available"
-    end
-
-    local sniffStatusPara = makeParagraph("Sniffer Status", "Not installed", nextOrder())
-
-    makeButton("Install Sniffer",
-        "WARNING: may break teleport until rejoin",
-        function()
-            local ok, msg = installDragSniffer()
-            pcall(function()
-                sniffStatusPara:setDesc(sniffStatusPara,
-                    (ok and "Installed: " or "FAILED: ") .. tostring(msg))
-            end)
-            setStatus(ok and "Sniffer installed" or ("Sniffer failed: " .. tostring(msg)))
-        end, nextOrder())
-
-    makeToggle("Sniff Drag Remote", "Log ClientIsDragging calls", false, function(state)
-        if state and not _G._BPFSnifferInstalled then
-            setStatus("Install the sniffer first"); return
-        end
-        _G._BPFDragSniffing = state
-        setStatus(state and "Sniffer ON" or "Sniffer OFF")
-    end, nextOrder())
-
-    makeButton("Print All Interaction Remotes", "Dump remote names", function()
-        if not Interaction then return end
-        print("=== Interaction remotes ===")
-        for _, c in ipairs(Interaction:GetChildren()) do
-            if c:IsA("RemoteEvent") or c:IsA("RemoteFunction") then
-                print("  " .. c.ClassName .. ": " .. c.Name)
-            end
-        end
-    end, nextOrder())
-end
-
--- ═══ LOG TAB ═══
-makeSection("CONSOLE (LIVE OUTPUT)", nextOrder(), "log")
-
-local consoleHolder = Instance.new("Frame")
-consoleHolder.Size = UDim2.new(1, 0, 0, 180)
-consoleHolder.BackgroundColor3 = Color3.fromRGB(5, 5, 8)
-consoleHolder.BorderSizePixel = 0
-consoleHolder.LayoutOrder = nextOrder()
-consoleHolder.Parent = body
-Instance.new("UICorner", consoleHolder).CornerRadius = UDim.new(0, 6)
-local chStroke = Instance.new("UIStroke", consoleHolder)
-chStroke.Color = Color3.fromRGB(40, 40, 55)
-chStroke.Thickness = 1
-
-local consoleScroll = Instance.new("ScrollingFrame")
-consoleScroll.Size = UDim2.new(1, -8, 1, -8)
-consoleScroll.Position = UDim2.fromOffset(4, 4)
-consoleScroll.BackgroundTransparency = 1
-consoleScroll.BorderSizePixel = 0
-consoleScroll.ScrollBarThickness = 4
-consoleScroll.ScrollBarImageColor3 = ACCENT
-consoleScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-consoleScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-consoleScroll.Parent = consoleHolder
-
-consoleLabel = Instance.new("TextLabel")
-consoleLabel.Size = UDim2.new(1, -4, 0, 0)
-consoleLabel.BackgroundTransparency = 1
-consoleLabel.Text = #consoleLines > 0 and table.concat(consoleLines, "\n") or "(no output yet)"
-consoleLabel.TextColor3 = Color3.fromRGB(180, 220, 180)
-consoleLabel.Font = Enum.Font.Code
-consoleLabel.TextSize = 10
-consoleLabel.TextXAlignment = Enum.TextXAlignment.Left
-consoleLabel.TextYAlignment = Enum.TextYAlignment.Top
-consoleLabel.TextWrapped = true
-consoleLabel.AutomaticSize = Enum.AutomaticSize.Y
-consoleLabel.Parent = consoleScroll
-
-makeButton("Clear Console", "Wipe the live log", function()
-    consoleLines = {}
-    if consoleLabel then consoleLabel.Text = "(cleared)" end
-end, nextOrder())
-
-makeButton("Copy Console to Clipboard", nil, function()
-    local all = table.concat(consoleLines, "\n")
-    local ok = pcall(function() if setclipboard then setclipboard(all) end end)
-    if ok and setclipboard then setStatus("Copied") else setStatus("Clipboard unavailable") end
-end, nextOrder())
-
-makeSection("PLANK INVENTORY", nextOrder())
-inventoryPara = makeParagraph("Loose Planks", "Scanning...", nextOrder())
-
-makeButton("Rescan Now", nil, function()
-    updateInventory()
-    setStatus("Scanned")
-end, nextOrder())
-
-makeSection("STATUS", nextOrder())
-statusPara = makeParagraph("Status", "Ready - mode: " .. fillMethod, nextOrder())
-
-for _, def in ipairs(TAB_DEFS) do
-    makeTabButton(def)
-end
-
-setActiveTab("target")
-
-local lastScrollCheck = 0
-RunService.Heartbeat:Connect(function()
-    if not gui.Parent then return end
-    if tick() - lastScrollCheck < 0.15 then return end
-    lastScrollCheck = tick()
-
-    local scrollY = body.CanvasPosition.Y
-    local bodyTopAbsY = body.AbsolutePosition.Y
-    local bestKey, bestDist = nil, math.huge
-
-    for key, marker in pairs(sectionMarkers) do
-        local markerRelY = (marker.AbsolutePosition.Y - bodyTopAbsY) + scrollY
-        if markerRelY <= scrollY + 40 then
-            local dist = (scrollY + 40) - markerRelY
-            if markerRelY >= 0 and dist < bestDist then
-                bestDist = dist
-                bestKey = key
-            end
-        end
-    end
-
-    if bestKey and bestKey ~= activeTab then
-        setActiveTab(bestKey)
-    end
-end)
-
-task.spawn(function()
-    while gui.Parent do
-        task.wait(2)
-        pcall(updateProcUI)
-    end
-end)
-
--- ─────────── MIN / CLOSE / RESIZE ───────────
-local minimized = false
-local savedSize = panel.Size
-
-local function togglePanel()
-    minimized = not minimized
-    if minimized then
-        savedSize = panel.Size
-        panel.Visible = false
-    else
-        panel.Visible = true
-        panel.Size = savedSize
-    end
-end
-
-toggleBtn.MouseButton1Click:Connect(togglePanel)
-
-minimizeBtn.MouseButton1Click:Connect(function()
-    minimized = true
-    savedSize = panel.Size
-    panel.Visible = false
-end)
-
-closeBtn.MouseButton1Click:Connect(function()
-    stopAllHolds()
-    stopFly()
-    cancelLasso()
-    procStopAll()
-    if lassoGui then pcall(function() lassoGui:Destroy() end); lassoGui = nil end
-    gui:Destroy()
-    _G._BPFillerGui = nil
-    _G._BPFLassoGui = nil
-end)
-
-local resizing = false
-local resizeStartMouse, resizeStartSize
-
-resizeHandle.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-        resizing = true
-        resizeStartMouse = UIS:GetMouseLocation()
-        resizeStartSize = panel.AbsoluteSize
-    end
-end)
-
-UIS.InputChanged:Connect(function(input)
-    if not resizing then return end
-    if input.UserInputType == Enum.UserInputType.MouseMovement
-    or input.UserInputType == Enum.UserInputType.Touch then
-        local cur = UIS:GetMouseLocation()
-        local dx = cur.X - resizeStartMouse.X
-        local dy = cur.Y - resizeStartMouse.Y
-        local newW = math.clamp(resizeStartSize.X + dx, 300, 700)
-        local newH = math.clamp(resizeStartSize.Y + dy, 320, 900)
-        panel.Size = UDim2.fromOffset(newW, newH)
-    end
-end)
-
-UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-        resizing = false
-    end
-end)
-
--- ─────────── PLAYER REFRESH ───────────
-Players.PlayerAdded:Connect(function()
-    if playerDropdown then pcall(function() playerDropdown:SetValues(getPlayerOptions()) end) end
-    if woodOwnerDropdown then pcall(function() woodOwnerDropdown:SetValues(getPlayerOptions()) end) end
-    if baseDropdown then pcall(function() baseDropdown:SetValues(getBaseOwnerOptions()) end) end
-end)
-
-Players.PlayerRemoving:Connect(function(p)
-    if selectedPlayer == p then
-        selectedPlayer = plr
-        if playerDropdown then pcall(function() playerDropdown:Set("(Me)") end) end
-    end
-    if selectedWoodOwner == p then
-        selectedWoodOwner = plr
-        if woodOwnerDropdown then pcall(function() woodOwnerDropdown:Set("(Me)") end) end
-        updateCrossWarn()
-    end
-    if playerDropdown then pcall(function() playerDropdown:SetValues(getPlayerOptions()) end) end
-    if woodOwnerDropdown then pcall(function() woodOwnerDropdown:SetValues(getPlayerOptions()) end) end
-    if baseDropdown then pcall(function() baseDropdown:SetValues(getBaseOwnerOptions()) end) end
-end)
-
--- ─────────── BACKGROUND ───────────
-RunService.Heartbeat:Connect(function(dt)
-    if not gui.Parent then return end
-    lastScanAccum += dt
-    if lastScanAccum >= SCAN_INTERVAL then
-        lastScanAccum = 0
-        updateInventory()
-    end
-end)
-
-task.spawn(function()
-    while gui.Parent do
-        if loopMode then pcall(loopTick) end
-        task.wait(1.5)
-    end
-end)
-
-task.spawn(function()
-    while gui.Parent do
-        if nearestMode then pcall(fillNearestBlueprint) end
-        task.wait(math.max(0.5, fillDelay * 3))
-    end
-end)
-
-task.spawn(function()
-    task.wait(0.5)
-    pcall(updateInventory)
-end)
-
-task.spawn(function()
-    while gui.Parent do
-        task.wait(30)
-        local ok = trySaveSettings(collectCurrentSettings())
-        if not ok then break end
-    end
-end)
-
-print("[BPFiller] v" .. VERSION .. " loaded.")
-print("[BPFiller] Mode: " .. fillMethod .. "  |  Owner access: " .. tostring(IS_OWNER))
-if savedSettings and next(savedSettings) then
-    print("[BPFiller] Loaded saved settings.")
-end
