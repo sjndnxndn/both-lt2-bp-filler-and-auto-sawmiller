@@ -708,7 +708,7 @@ end
 -- ═══════════════════════════════════════════════════════════
 -- WOOD PROCESSOR + STANDALONE CUTTERS
 -- ═══════════════════════════════════════════════════════════
-local procConfig = {
+procConfig = {
     CUT_DELAY = 1.0,
     CUT_HEIGHT = 1,
     FACE_VECTOR = Vector3.new(1, 0, 0),
@@ -729,13 +729,13 @@ local procConfig = {
     MAX_QUEUE = 2,
 }
 
-local PROC_WARN_RED = Color3.fromRGB(230, 120, 120)
-local PROC_GOOD_GREEN = Color3.fromRGB(110, 210, 130)
-local function procSetStatus(msg)
+PROC_WARN_RED = Color3.fromRGB(230, 120, 120)
+PROC_GOOD_GREEN = Color3.fromRGB(110, 210, 130)
+function procSetStatus(msg)
     if _setStatusRef then _setStatusRef(msg) end
 end
 
-local procState = {
+procState = {
     processed = setmetatable({}, {__mode = "k"}),
     waterStash = {},
     running = false,
@@ -744,16 +744,16 @@ local procState = {
     sessionCount = 0,
 }
 
-local cutterTargetLength = 3
-local cutterRunning = false
+cutterTargetLength = 3
+cutterRunning = false
 
-local procWaterTerms = {
+procWaterTerms = {
     "water", "swamp", "ocean", "river", "lake", "sea", "damagezone", "hazard",
 }
 
 -- Water stash: neutralizes CanTouch/CanCollide on all water parts and their
 -- descendants. Uses client-side properties because LT2 locks Parent.
-local function procStashWater()
+function procStashWater()
     if #procState.waterStash > 0 then return 0 end
     local snapshot = {}
     for _, d in ipairs(workspace:GetDescendants()) do
@@ -811,7 +811,7 @@ local function procStashWater()
     return n
 end
 
-local function procRestoreWater()
+function procRestoreWater()
     local n = 0
     for _, entry in ipairs(procState.waterStash) do
         for _, state in ipairs(entry.touchStates or {}) do
@@ -828,12 +828,12 @@ local function procRestoreWater()
     return n
 end
 
-local function procFmtVec(v)
+function procFmtVec(v)
     if not v then return "nil" end
     return string.format("(%.2f,%.2f,%.2f)", v.X, v.Y, v.Z)
 end
 
-local function procToolRealName(tool)
+function procToolRealName(tool)
     local tn = tool:FindFirstChild("ToolName")
     if tn and tn:IsA("StringValue") then
         local ok, v = pcall(function() return tn.Value end)
@@ -842,7 +842,7 @@ local function procToolRealName(tool)
     return tool.Name
 end
 
-local function procFindAxe()
+function procFindAxe()
     local containers = {
         plr:FindFirstChild("Backpack"),
         plr:FindFirstChild("Tools"),
@@ -864,7 +864,7 @@ local function procFindAxe()
     end
 end
 
-local function procEnsureEquipped(axe)
+function procEnsureEquipped(axe)
     if not axe or not axe.Parent then return false end
     local c = plr.Character
     if not c then return false end
@@ -876,19 +876,19 @@ local function procEnsureEquipped(axe)
     return axe.Parent == c
 end
 
-local function procIsPlank(model)
+function procIsPlank(model)
     if not model or not model:IsA("Model") then return false end
     if not ownerMatches(model, plr) then return false end
     return model:FindFirstChild("CutEvent") ~= nil
 end
 
-local function procIsSawmill(model)
+function procIsSawmill(model)
     if not model or not model:IsA("Model") then return false end
     if not ownerMatches(model, plr) then return false end
     return model:FindFirstChild("Conveyor") ~= nil
 end
 
-local function procFindAllPlanks()
+function procFindAllPlanks()
     local found, seen = {}, {}
     local pm = workspace:FindFirstChild("PlayerModels")
     local roots = { workspace }
@@ -905,7 +905,7 @@ local function procFindAllPlanks()
     return found
 end
 
-local function procFindPlayerSawmill()
+function procFindPlayerSawmill()
     local pm = workspace:FindFirstChild("PlayerModels")
     if not pm then return nil end
     for _, m in ipairs(pm:GetChildren()) do
@@ -913,19 +913,19 @@ local function procFindPlayerSawmill()
     end
 end
 
-local function procGetWoodSection(plank)
+function procGetWoodSection(plank)
     local ws = plank:FindFirstChild("WoodSection")
     if ws and ws:IsA("BasePart") then return ws end
 end
 
-local function procGetSize(plank)
+function procGetSize(plank)
     local ws = procGetWoodSection(plank)
     if ws then return ws.Size end
     local ok, _, s = pcall(function() return plank:GetBoundingBox() end)
     if ok then return s end
 end
 
-local function procGetWoodType(plank)
+function procGetWoodType(plank)
     local tc = plank:FindFirstChild("TreeClass")
     if tc and tc:IsA("StringValue") then
         local ok, v = pcall(function() return tc.Value end)
@@ -934,14 +934,14 @@ local function procGetWoodType(plank)
     return "?"
 end
 
-local function procGetHP()
+function procGetHP()
     local c = plr.Character
     if not c then return 100 end
     local h = c:FindFirstChildOfClass("Humanoid")
     return h and h.Health or 100
 end
 
-local function procTeleportNear(plank)
+function procTeleportNear(plank)
     local c = plr.Character
     if not c then return "fail" end
     local root = c:FindFirstChild("HumanoidRootPart")
@@ -991,7 +991,7 @@ local function procTeleportNear(plank)
     return mode
 end
 
-local function procFireCut(plank, axe, height)
+function procFireCut(plank, axe, height)
     if not RemoteProxy then return false end
     local cutEvent = plank:FindFirstChild("CutEvent")
     if not cutEvent or not axe then return false end
@@ -1007,7 +1007,7 @@ local function procFireCut(plank, axe, height)
     return pcall(function() RemoteProxy:FireServer(cutEvent, payload) end)
 end
 
-local function procCutTo1x1(plank, announceFn)
+function procCutTo1x1(plank, announceFn)
     if not plank or not plank.Parent then return false end
 
     local stashed = procStashWater()
@@ -1077,7 +1077,7 @@ local function procCutTo1x1(plank, announceFn)
     return ok
 end
 
-local function procCutToLength(plank, targetLength, announceFn)
+function procCutToLength(plank, targetLength, announceFn)
     if not plank or not plank.Parent then return false end
 
     local stashed = procStashWater()
@@ -1147,9 +1147,9 @@ local function procCutToLength(plank, targetLength, announceFn)
     return ok
 end
 
-local cutterStatusRef = nil
+cutterStatusRef = nil
 
-local function setCutterStatus(text, color)
+function setCutterStatus(text, color)
     if cutterStatusRef then
         pcall(function()
             cutterStatusRef:setDesc(cutterStatusRef, text)
@@ -1158,7 +1158,7 @@ local function setCutterStatus(text, color)
     end
 end
 
-local function runCutAll1x1()
+function runCutAll1x1()
     if cutterRunning then
         procSetStatus("Cutter already running")
         return
@@ -1191,7 +1191,7 @@ local function runCutAll1x1()
     end)
 end
 
-local function runCutAllLength(targetLength)
+function runCutAllLength(targetLength)
     if cutterRunning then
         procSetStatus("Cutter already running")
         return
@@ -1224,7 +1224,7 @@ local function runCutAllLength(targetLength)
     end)
 end
 
-local function procGrabOwnership(plank)
+function procGrabOwnership(plank)
     if not ClientIsDragging then return false end
 
     local initial = plank:GetAttribute("LastInteraction")
@@ -1247,7 +1247,7 @@ local function procGrabOwnership(plank)
     return false
 end
 
-local function procMovePlankToSawmill(plank, sawmill)
+function procMovePlankToSawmill(plank, sawmill)
     if not plank or not sawmill then return false end
 
     local feedDir = procConfig.DEFAULT_FEED_DIR
@@ -1279,7 +1279,7 @@ local function procMovePlankToSawmill(plank, sawmill)
     return true
 end
 
-local function procPlankFitsSawmill(plank)
+function procPlankFitsSawmill(plank)
     if not plank then return false end
     local s = procGetSize(plank)
     if not s then return false end
@@ -1294,7 +1294,7 @@ local function procPlankFitsSawmill(plank)
     return true
 end
 
-local function procSawmillQueueFull(sawmill)
+function procSawmillQueueFull(sawmill)
     if not sawmill then return false end
     local pos = sawmill:GetPivot().Position
     local count = 0
@@ -1307,9 +1307,9 @@ local function procSawmillQueueFull(sawmill)
     return count >= procConfig.MAX_QUEUE
 end
 
-local procUpdateUIRef = nil
+procUpdateUIRef = nil
 
-local function procProcessOneCycle()
+function procProcessOneCycle()
     local sawmill = procFindPlayerSawmill()
     if not sawmill then
         procState.lastAction = "No sawmill found"
@@ -1353,7 +1353,7 @@ local function procProcessOneCycle()
     return true
 end
 
-local function procStartLoop()
+function procStartLoop()
     if procState.loopStarted then
         procState.running = true
         return
@@ -1371,18 +1371,18 @@ local function procStartLoop()
     end)
 end
 
-local function procStopLoop()
+function procStopLoop()
     procState.running = false
 end
 
-local function procStopAll()
+function procStopAll()
     procStopLoop()
     if #procState.waterStash > 0 then
         procRestoreWater()
     end
 end
 
-local function procProcessOneManual()
+function procProcessOneManual()
     task.spawn(function()
         pcall(procProcessOneCycle)
     end)
@@ -2264,23 +2264,23 @@ task.spawn(function()
 end)
 
 -- ─────────── LOGIC ───────────
-local statusPara = nil
-local inventoryPara = nil
-local treeLabelPara = nil
-local woodTypeDropdown = nil
-local playerDropdown = nil
-local woodOwnerDropdown = nil
-local baseDropdown = nil
-local holdCountPara = nil
-local crossWarnPara = nil
-local sizeRangePara = nil
-local lassoCountPara = nil
-local lassoOnlyToggle = nil
-local lassoDrawBtn = nil
-local procStatusPara = nil
-local procCountPara = nil
-local procInfoPara = nil
-local procStartBtn = nil
+statusPara = nil
+inventoryPara = nil
+treeLabelPara = nil
+woodTypeDropdown = nil
+playerDropdown = nil
+woodOwnerDropdown = nil
+baseDropdown = nil
+holdCountPara = nil
+crossWarnPara = nil
+sizeRangePara = nil
+lassoCountPara = nil
+lassoOnlyToggle = nil
+lassoDrawBtn = nil
+procStatusPara = nil
+procCountPara = nil
+procInfoPara = nil
+procStartBtn = nil
 
 local function setStatus(text)
     if statusPara then pcall(function() statusPara:setDesc(statusPara, text) end) end
@@ -3046,6 +3046,363 @@ makeParagraph("Tip",
     TEXT_DIM)
 
 -- ═══ FILL TAB ═══
+
+-- === INJECTED: v19 — height = final target size ===
+
+procConfig.FACE_VECTOR = Vector3.new(0, 0, 1)
+procConfig.HIT_POINTS = 11
+procConfig.COOLDOWN = 0.20029617309570313
+procConfig.CUT_HEIGHT = 1.05
+procConfig.DEFAULT_FEED_DIR = Vector3.new(0, 0, 1)
+
+procWaterTerms = {
+    "water", "swamp", "ocean", "river", "lake", "sea",
+    "damagezone", "hazard", "damage",
+    "volcano", "lava", "magma", "burn", "heat",
+    "cave", "spike", "trap", "death", "kill",
+}
+
+function nukeWaterPermanently()
+    local n = 0
+    local snapshot = {}
+    for _, d in ipairs(workspace:GetDescendants()) do
+        snapshot[d] = true
+    end
+    for d in pairs(snapshot) do
+        if d and d.Parent then
+            local checkable = d:IsA("BasePart") or d:IsA("Folder")
+                           or d:IsA("Model") or d:IsA("TrussPart")
+            if checkable then
+                local nm = d.Name:lower()
+                for _, term in ipairs(procWaterTerms) do
+                    if nm:find(term) then
+                        pcall(function() d.Parent = nil end)
+                        n = n + 1
+                        break
+                    end
+                end
+            end
+        end
+    end
+    print("[hazard] NUKED " .. n .. " hazard parts")
+    return n
+end
+
+function procStashWater() return 0 end
+function procRestoreWater() return 0 end
+
+cutHpConn = nil
+hpGuardCount = 0
+
+function startCutHpGuard()
+    hpGuardCount = hpGuardCount + 1
+    if cutHpConn then return end
+    cutHpConn = RunService.Heartbeat:Connect(function()
+        local c = plr.Character
+        if not c then return end
+        local h = c:FindFirstChildOfClass("Humanoid")
+        if h and h.Health < h.MaxHealth then
+            h.Health = h.MaxHealth
+        end
+    end)
+end
+
+function stopCutHpGuard()
+    hpGuardCount = math.max(0, hpGuardCount - 1)
+    if hpGuardCount == 0 and cutHpConn then
+        cutHpConn:Disconnect()
+        cutHpConn = nil
+    end
+end
+
+function forceStopHpGuard()
+    hpGuardCount = 0
+    if cutHpConn then cutHpConn:Disconnect(); cutHpConn = nil end
+end
+
+function procFireCut(plank, axe, height)
+    if not RemoteProxy then print("[cut] no RemoteProxy"); return false end
+    local cutEvent = plank:FindFirstChild("CutEvent")
+    if not cutEvent then print("[cut] no CutEvent"); return false end
+    if not axe then print("[cut] no axe"); return false end
+    local payload = {
+        height       = height,
+        faceVector   = procConfig.FACE_VECTOR,
+        cooldown     = procConfig.COOLDOWN,
+        sectionId    = procConfig.SECTION_ID,
+        hitPoints    = procConfig.HIT_POINTS,
+        tool         = axe,
+        cuttingClass = procConfig.CUTTING_CLASS,
+    }
+    local ok, err = pcall(function()
+        RemoteProxy:FireServer(cutEvent, payload)
+    end)
+    if not ok then print("[cut] FireServer err: " .. tostring(err)); return false end
+    return true
+end
+
+function procComputeTargetBasis(A_L, A_M, A_S, F, U)
+    local S = U:Cross(F)
+    if S.Magnitude < 0.01 then S = Vector3.new(1, 0, 0) end
+    S = S.Unit
+    local V = {}
+    if A_L == "X" and A_M == "Y" and A_S == "Z" then V.X, V.Y, V.Z = F, S, U
+    elseif A_L == "X" and A_M == "Z" and A_S == "Y" then V.X, V.Y, V.Z = F, U, -S
+    elseif A_L == "Y" and A_M == "X" and A_S == "Z" then V.X, V.Y, V.Z = S, F, U
+    elseif A_L == "Y" and A_M == "Z" and A_S == "X" then V.X, V.Y, V.Z = U, F, S
+    elseif A_L == "Z" and A_M == "X" and A_S == "Y" then V.X, V.Y, V.Z = S, U, F
+    elseif A_L == "Z" and A_M == "Y" and A_S == "X" then V.X, V.Y, V.Z = U, -S, F
+    end
+    return V.X, V.Y, V.Z
+end
+
+function procOrientPlank(plank, feedDir)
+    if not plank or not plank.Parent then return false end
+    local ws = procGetWoodSection(plank)
+    if not ws then return false end
+    feedDir = feedDir or procConfig.DEFAULT_FEED_DIR
+    local worldUp = Vector3.new(0, 1, 0)
+    local F = feedDir - feedDir:Dot(worldUp) * worldUp
+    if F.Magnitude < 0.01 then F = procConfig.DEFAULT_FEED_DIR end
+    F = F.Unit
+    local s = ws.Size
+    local ranked = {
+        {axis = "X", size = s.X},
+        {axis = "Y", size = s.Y},
+        {axis = "Z", size = s.Z},
+    }
+    table.sort(ranked, function(a, b) return a.size < b.size end)
+    local vX, vY, vZ = procComputeTargetBasis(
+        ranked[3].axis, ranked[2].axis, ranked[1].axis, F, worldUp)
+    ws.CFrame = CFrame.fromMatrix(ws.CFrame.Position, vX, vY, vZ)
+    return true
+end
+
+-- Cuts with height = desired final size. Repeats only if size didn't reach target.
+function procCutTo1x1(plank, announceFn)
+    if not plank or not plank.Parent then return false end
+    local size = procGetSize(plank)
+    if size then
+        local d = {size.X, size.Y, size.Z}
+        table.sort(d)
+        if d[3] <= 1.05 then
+            if announceFn then announceFn("Already 1x1x1.") end
+            return true
+        end
+    end
+    local axe = procFindAxe()
+    if not axe then
+        if announceFn then announceFn("No axe.") end
+        return false
+    end
+    procEnsureEquipped(axe)
+
+    startCutHpGuard()
+
+    local ok = (function()
+        local mode = procTeleportNear(plank)
+        if announceFn then announceFn("TP: " .. mode) end
+        procOrientPlank(plank, procConfig.DEFAULT_FEED_DIR)
+        task.wait(0.25)
+
+        if not axe.Parent then
+            task.wait(0.3)
+            local rf = procFindAxe()
+            if rf then axe = rf; procEnsureEquipped(axe)
+            else
+                if announceFn then announceFn("Axe gone after TP.") end
+                return false
+            end
+        end
+
+        local cuts, lastSig, stall = 0, nil, 0
+        local finalSize = nil
+        while cuts < procConfig.MAX_CUTS do
+            -- Check if ClickCut toggle was turned off mid-loop
+            if clickCut1x1Mode == false then
+                if announceFn then announceFn("Cancelled by toggle.") end
+                return false
+            end
+
+            if not plank.Parent then return true end
+            local s = procGetSize(plank)
+            if not s then break end
+            local d = {s.X, s.Y, s.Z}
+            table.sort(d)
+            finalSize = d
+
+            if d[3] <= 1.05 then
+                if announceFn then
+                    announceFn(string.format("Done (%d cuts). Final: %.3f, %.3f, %.3f",
+                        cuts, d[1], d[2], d[3]))
+                end
+                return true
+            end
+
+            -- Stall detection: 3 identical readings in a row = no progress
+            local sig = string.format("%.3f_%.3f_%.3f", d[1], d[2], d[3])
+            if lastSig == sig then
+                stall = stall + 1
+                if stall >= 3 then
+                    if announceFn then
+                        announceFn(string.format("Floor: %.3f, %.3f, %.3f",
+                            d[1], d[2], d[3]))
+                    end
+                    return false
+                end
+            else
+                stall = 0
+                lastSig = sig
+            end
+
+            -- Send height = target final size directly
+            local targetHeight = procConfig.CUT_HEIGHT
+
+            procEnsureEquipped(axe)
+            procFireCut(plank, axe, targetHeight)
+            cuts = cuts + 1
+
+            if announceFn then
+                announceFn(string.format("Fire %d - height=%.3f - before %.3f, %.3f, %.3f",
+                    cuts, targetHeight, d[1], d[2], d[3]))
+            end
+            task.wait(procConfig.CUT_DELAY)
+        end
+
+        if announceFn then
+            if finalSize then
+                announceFn(string.format("Stopped after %d cuts. Final: %.3f, %.3f, %.3f",
+                    cuts, finalSize[1], finalSize[2], finalSize[3]))
+            else
+                announceFn("Stopped after " .. cuts .. " cuts.")
+            end
+        end
+        return false
+    end)()
+
+    stopCutHpGuard()
+    return ok
+end
+
+-- === Click to Cut ===
+clickCut1x1Mode = false
+clickCut1x1Conn = nil
+clickCut1x1Toggle = nil
+
+local GuiService = game:GetService("GuiService")
+
+function castOnceForPlank(cam, vx, vy)
+    local ray = cam:ViewportPointToRay(vx, vy)
+    local excludeList = {}
+    if plr.Character then table.insert(excludeList, plr.Character) end
+    for attempt = 1, 12 do
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = excludeList
+        local result = workspace:Raycast(ray.Origin, ray.Direction * 2000, params)
+        if not result then return nil end
+        local node = result.Instance
+        while node and node.Parent do
+            if node:IsA("Model") and procIsPlank(node) then return node end
+            node = node.Parent
+        end
+        table.insert(excludeList, result.Instance)
+    end
+    return nil
+end
+
+function clickCutRaycast(screenPos)
+    local cam = workspace.CurrentCamera
+    if not cam then return nil, "no camera" end
+    local insetY = 0
+    pcall(function()
+        local inset = GuiService:GetGuiInset()
+        insetY = inset.Y
+    end)
+    local found = castOnceForPlank(cam, screenPos.X, screenPos.Y + insetY)
+    if found then return found, "raw+inset" end
+    local n2 = castOnceForPlank(cam, screenPos.X, screenPos.Y)
+    if n2 then return n2, "raw" end
+    return nil, "no plank"
+end
+
+function startClickCut1x1()
+    if clickCut1x1Mode then
+        clickCut1x1Mode = false
+        if clickCut1x1Conn then clickCut1x1Conn:Disconnect(); clickCut1x1Conn = nil end
+        forceStopHpGuard()
+        procSetStatus("[ClickCut] OFF")
+        return
+    end
+    clickCut1x1Mode = true
+    startCutHpGuard()
+    procSetStatus("[ClickCut] ON - tap a plank")
+    clickCut1x1Conn = UIS.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if not clickCut1x1Mode then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+        and input.UserInputType ~= Enum.UserInputType.Touch then return end
+
+        local node, why = clickCutRaycast(input.Position)
+        if not node then
+            procSetStatus("[ClickCut] " .. tostring(why))
+            return
+        end
+        procSetStatus("[ClickCut] cutting " .. procGetWoodType(node))
+        task.spawn(function()
+            local axe = procFindAxe()
+            if not axe then
+                procSetStatus("[ClickCut] NO AXE"); return
+            end
+            local before = procGetSize(node)
+            print("[ClickCut] size before: " .. tostring(before))
+            local ok = procCutTo1x1(node, function(m) print("  [cut] " .. m) end)
+            print("[ClickCut] result: " .. tostring(ok))
+            local after = procGetSize(node)
+            print("[ClickCut] size after: " .. tostring(after))
+            procSetStatus("[ClickCut] " .. (ok and "done" or "failed"))
+        end)
+    end)
+end
+
+-- === UI ===
+makeSection("CLICK TO CUT", nextOrder(), "wood")
+makeParagraph("How it works",
+    "Tap a plank to cut it. Height = the size to leave after cut. Target 1.05 gives ~1x1x1.",
+    nextOrder(), TEXT_DIM)
+
+clickCut1x1Toggle = makeButton("Click to Cut 1x1x1 - OFF",
+    "Toggle. When ON, tap a plank to cut it.",
+    function()
+        startClickCut1x1()
+        local lbl = clickCut1x1Toggle:FindFirstChildWhichIsA("TextLabel")
+        if lbl then
+            lbl.Text = clickCut1x1Mode and "Click to Cut 1x1x1 - ON" or "Click to Cut 1x1x1 - OFF"
+        end
+    end, nextOrder())
+
+makeSlider("height (final size)", 0.5, 5.0, procConfig.CUT_HEIGHT, function(v)
+    procConfig.CUT_HEIGHT = v
+    print("[cut] height = " .. string.format("%.3f", v))
+end, nextOrder(), "%.2f")
+
+makeParagraph("height meaning",
+    "height = the target size to leave the plank at. Use ~1.05 for 1x1x1. If the cut overshoots (goes below 1), raise this value.",
+    nextOrder(), TEXT_DIM)
+
+makeToggle("Sniffer ON/OFF",
+    "Log every RemoteProxy:FireServer call.",
+    false,
+    function(state)
+        snifferEnabled = state
+    end, nextOrder())
+
+task.spawn(function()
+    task.wait(1)
+    nukeWaterPermanently()
+end)
+-- === END INJECTED ===
+
 makeSection("FILL METHOD", nextOrder(), "fill")
 
 makeDropdown("Mode", fillMethodLabels,
